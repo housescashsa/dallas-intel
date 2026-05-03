@@ -12,7 +12,6 @@ from dallas_intel.config import DB_PATH
 
 app = FastAPI(title="Dallas Property Intel API")
 
-# Allow the dashboard (running on localhost or Claude artifacts) to fetch
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,7 +40,7 @@ def stats():
             SUM(CASE WHEN score >= 70 THEN 1 ELSE 0 END) AS hot,
             SUM(CASE WHEN score >= 50 AND score < 70 THEN 1 ELSE 0 END) AS warm,
             SUM(CASE WHEN score >= 30 AND score < 50 THEN 1 ELSE 0 END) AS active,
-            SUM(CASE WHEN property_address != '' AND property_address NOT LIKE '0 %' THEN 1 ELSE 0 END) AS with_address
+            SUM(CASE WHEN property_address != "" AND property_address NOT LIKE "0 %" THEN 1 ELSE 0 END) AS with_address
         FROM leads
     """).fetchone()
     last = c.execute("SELECT MAX(last_scored) AS t FROM leads").fetchone()
@@ -55,18 +54,23 @@ def list_leads(
     lead_type: str | None = None,
     city: str | None = None,
     search: str | None = None,
-    limit: int = Query(default=500, le=5000),
+    filed_from: str | None = None,
+    filed_to: str | None = None,
+    years_delinquent_min: int | None = None,
+    limit: int = Query(default=500, le=10000),
 ):
     c = conn()
     sql = """
         SELECT l.id, l.dcad_account, l.lead_type, l.score, l.flags,
                l.doc_number, l.filed_date, l.owner_name, l.property_address,
                l.city, l.zip, l.mailing_address, l.amount, l.legal_desc,
-               p.market_value, p.year_built, p.sqft, p.beds, p.baths
+               p.market_value, p.year_built, p.sqft, p.beds, p.baths,
+               t.years_delinquent
         FROM leads l
         LEFT JOIN parcels p ON p.dcad_account = l.dcad_account
+        LEFT JOIN tax_delinquencies t ON t.dcad_account = l.dcad_account
         WHERE l.score >= ?
-          AND (l.property_address NOT LIKE '0 %' OR l.property_address IS NULL)
+          AND (l.property_address NOT LIKE "0 %" OR l.property_address IS NULL)
     """
     args = [score_min]
     if lead_type:
@@ -74,10 +78,19 @@ def list_leads(
         args.append(lead_type)
     if city:
         sql += " AND l.city LIKE ?"
-        args.append(f"%{city}%")
+        args.append("%" + city + "%")
     if search:
         sql += " AND (l.owner_name LIKE ? OR l.property_address LIKE ?)"
-        args.extend([f"%{search}%", f"%{search}%"])
+        args.extend(["%" + search + "%", "%" + search + "%"])
+    if filed_from:
+        sql += " AND l.filed_date >= ?"
+        args.append(filed_from)
+    if filed_to:
+        sql += " AND l.filed_date <= ?"
+        args.append(filed_to)
+    if years_delinquent_min is not None:
+        sql += " AND t.years_delinquent >= ?"
+        args.append(years_delinquent_min)
     sql += " ORDER BY l.score DESC, l.amount DESC LIMIT ?"
     args.append(limit)
 
@@ -112,7 +125,7 @@ def cities():
     rows = c.execute("""
         SELECT city, COUNT(*) AS n
         FROM leads
-        WHERE city != ''
+        WHERE city != ""
         GROUP BY city
         ORDER BY n DESC
         LIMIT 20
