@@ -37,8 +37,7 @@ CREATE TABLE IF NOT EXISTS tax_delinquencies (
     tax_year        INTEGER,
     amount_due      REAL,
     years_delinquent INTEGER,
-    last_seen       TEXT,
-    FOREIGN KEY(dcad_account) REFERENCES parcels(dcad_account)
+    last_seen       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tax_account ON tax_delinquencies(dcad_account);
 
